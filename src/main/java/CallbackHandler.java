@@ -3,7 +3,6 @@
 import java.util.HashMap;
 import java.util.Map;
 
-import org.apache.camel.BindToRegistry;
 import org.apache.camel.Exchange;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.component.kubernetes.KubernetesConstants;
@@ -11,13 +10,8 @@ import org.apache.camel.language.simple.Simple;
 
 import io.fabric8.kubernetes.api.model.ObjectMeta;
 import io.fabric8.kubernetes.api.model.Secret;
-import io.fabric8.kubernetes.client.DefaultKubernetesClient;
-import io.fabric8.kubernetes.client.KubernetesClient;
 
-public class GitHubAppHandler extends RouteBuilder {
-    
-    @BindToRegistry("kubernetesClient")
-    KubernetesClient kubernetesClient = new DefaultKubernetesClient();
+public class CallbackHandler extends RouteBuilder {
 
     Secret createSecret(
         @Simple("${body[id]}") String id,
@@ -45,10 +39,6 @@ public class GitHubAppHandler extends RouteBuilder {
     @Override
     public void configure() throws Exception {
 
-        rest()
-            .get("/callback").to("direct:callback")
-            .post("/events").to("direct:events");
-
         from("direct:callback")
 
             .setProperty("code", header("code"))
@@ -67,12 +57,5 @@ public class GitHubAppHandler extends RouteBuilder {
             .setHeader(KubernetesConstants.KUBERNETES_NAMESPACE_NAME, simple("${env:NAMESPACE}"))
             .setHeader(KubernetesConstants.KUBERNETES_SECRET, method(this, "createSecret"))
             .to("kubernetes-secrets:///?kubernetesClient=#kubernetesClient&operation=createSecret");
-
-        from("direct:events")
-            .log("Event: ${body}");
-    }
-    
-    public static void main(String[] args) {
-        // TODO
     }
 }

@@ -93,7 +93,7 @@
         <version>3.5.0</version>
         <configuration>
           <logClasspath>true</logClasspath>
-          <mainClass>GitHubAppHandler</mainClass>
+          <mainClass>GitHubApp</mainClass>
         </configuration>
       </plugin>
 
