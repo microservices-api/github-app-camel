@@ -27,10 +27,10 @@ public class CallbackHandler extends RouteBuilder {
         secret.setMetadata(metadata);
 
         Map<String, String> stringData = new HashMap<>();
-        stringData.put("client_id", clientId);
-        stringData.put("client_secret", clientSecret);
-        stringData.put("webhook_secret", webhookSecret);
-        stringData.put("pem", pem);
+        stringData.put(GitHubApp.CLIENT_ID, clientId);
+        stringData.put(GitHubApp.CLIENT_SECRET, clientSecret);
+        stringData.put(GitHubApp.WEBHOOK_SECRET, webhookSecret);
+        stringData.put(GitHubApp.PEM, pem);
         secret.setStringData(stringData);
 
         return secret;
