@@ -54,7 +54,8 @@ public class EventsHandler extends RouteBuilder {
 
         from("direct:events")
 
-            .onException(Exception.class)
+            .onException(DecoderException.class)
+            .onException(GeneralSecurityException.class)
                 .handled(true)
                 .removeHeaders("*")
                 .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
