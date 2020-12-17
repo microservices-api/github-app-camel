@@ -54,14 +54,6 @@ public class EventsHandler extends RouteBuilder {
 
         from("direct:events")
 
-            .onException(DecoderException.class)
-            .onException(GeneralSecurityException.class)
-                .handled(true)
-                .removeHeaders("*")
-                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
-                .transform(constant("Not found"))
-            .end()
-
             .log("Received event:")
             .log("-> ${headers[X-Github-Event]}")
             .log("-> ${body}")
@@ -76,21 +68,40 @@ public class EventsHandler extends RouteBuilder {
                 .when(PredicateBuilder.and(
                     header(X_EVENT).isEqualTo("installation"),
                     simple("${body[action]} == 'created'")))
+                    .to("direct:handle-event")
+                .otherwise()
+                    .removeHeaders("*")
+                    .setBody(simple("${null}"));
 
-                        .to("direct:get-secret")
-                        .bean(this, "validateSignature")
-                        .log("TODO")
+        from("direct:handle-event")
+
+            .onException(DecoderException.class)
+            .onException(GeneralSecurityException.class)
+                .handled(true)
+                .removeHeaders("*")
+                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
+                .transform(constant("Not found"))
             .end()
-            .removeHeaders("*")
-            .setBody(simple("${null}"));
+
+            // save values for use
+            .setProperty("app_id", simple("${body[installation][app_id]}"))
+            .setProperty("id", simple("${body[installation][id]}"))
+            
+            // get app secrets
+            .to("direct:get-secret")
+
+            .bean(this, "validateSignature")
+            // TODO: generate JWT
+            // TODO: request access token
+            
+            // restore original payload
+            .setBody(exchangeProperty("payload"))
+            .log("TODO: ${body}");
 
         from("direct:get-secret")
 
-            // save original body
-            .setProperty("original", body())
-
             .setHeader(KubernetesConstants.KUBERNETES_NAMESPACE_NAME, simple("${env:NAMESPACE}"))
-            .setHeader(KubernetesConstants.KUBERNETES_SECRET_NAME, simple("github-app-${body[installation][app_id]}"))
+            .setHeader(KubernetesConstants.KUBERNETES_SECRET_NAME, simple("github-app-${exchangeProperty[app_id]}"))
 
             .to("kubernetes-secrets:///?kubernetesClient=#kubernetesClient&operation=getSecret")
             .process(exchange -> {
@@ -103,9 +114,6 @@ public class EventsHandler extends RouteBuilder {
                     
                     exchange.setProperty(GitHubApp.WEBHOOK_SECRET, decoder.decode(data.get(GitHubApp.WEBHOOK_SECRET)));
                 }
-            })
-
-            // restore original body
-            .setBody(exchangeProperty("original"));
+            });
     }
 }
