@@ -1,36 +1,65 @@
 // camel-k: language=java
 
+import java.security.GeneralSecurityException;
+import java.security.MessageDigest;
+import java.security.SignatureException;
 import java.util.Base64;
 import java.util.Base64.Decoder;
 import java.util.Map;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+
+import org.apache.camel.Exchange;
 import org.apache.camel.ExchangeProperty;
 import org.apache.camel.Header;
 import org.apache.camel.builder.RouteBuilder;
 import org.apache.camel.component.kubernetes.KubernetesConstants;
 import org.apache.camel.support.builder.PredicateBuilder;
+import org.apache.commons.codec.DecoderException;
+import org.apache.commons.codec.binary.Hex;
 
 import io.fabric8.kubernetes.api.model.Secret;
 
 public class EventsHandler extends RouteBuilder {
 
-    private static final String X_SIGNATURE = "X-Hub-Signature";
+    private static final String X_SIGNATURE = "X-Hub-Signature-256";
     private static final String X_EVENT     = "X-GitHub-Event";
 
-    void validatePayload(
-        @Header(X_SIGNATURE) String signature,
-        @ExchangeProperty(GitHubApp.WEBHOOK_SECRET) String secret,
-        @ExchangeProperty("payload") byte[] payload) {
+    private static final String HMAC_SHA256 = "HmacSHA256";
 
-        log.info("Signature: {}", signature);
-        log.info("Secret: {}", secret);
-        log.info("Payload: {}", payload);
+    void validateSignature(
+        @Header(X_SIGNATURE) String signature,
+        @ExchangeProperty(GitHubApp.WEBHOOK_SECRET) byte[] secret,
+        @ExchangeProperty("payload") byte[] payload)
+        throws DecoderException, GeneralSecurityException {
+        
+        // hex decode signature (minus sha256= prefix) to byte[]
+        signature = signature.substring(7);
+        byte[] actualSig = Hex.decodeHex(signature.toCharArray());
+
+        // compute the expected signature
+        Mac hmac = Mac.getInstance(HMAC_SHA256);
+        hmac.init(new SecretKeySpec(secret, HMAC_SHA256));
+        byte[] expectedSig = hmac.doFinal(payload);
+
+        if (!MessageDigest.isEqual(actualSig, expectedSig))
+            throw new SignatureException("Signature validation failed");
+
+        log.info("-> Signature {} is valid", signature);
     }
 
     @Override
     public void configure() throws Exception {
 
         from("direct:events")
+
+            .onException(Exception.class)
+                .handled(true)
+                .removeHeaders("*")
+                .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
+                .transform(constant("Not found"))
+            .end()
 
             .log("Received event:")
             .log("-> ${headers[X-Github-Event]}")
@@ -48,8 +77,10 @@ public class EventsHandler extends RouteBuilder {
                     simple("${body[action]} == 'created'")))
 
                         .to("direct:get-secret")
-                        .bean(this, "validatePayload")
+                        .bean(this, "validateSignature")
+                        .log("TODO")
             .end()
+            .removeHeaders("*")
             .setBody(simple("${null}"));
 
         from("direct:get-secret")
