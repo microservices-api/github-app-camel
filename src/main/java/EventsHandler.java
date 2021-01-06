@@ -1,14 +1,22 @@
 // camel-k: language=java
 
+import java.io.IOException;
+import java.io.StringReader;
 import java.security.GeneralSecurityException;
+import java.security.KeyPair;
 import java.security.MessageDigest;
 import java.security.SignatureException;
+import java.security.interfaces.RSAPrivateKey;
 import java.util.Base64;
 import java.util.Base64.Decoder;
 import java.util.Map;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+
+import com.auth0.jwt.JWT;
+import com.auth0.jwt.algorithms.Algorithm;
+import com.auth0.jwt.exceptions.JWTCreationException;
 
 import org.apache.camel.Exchange;
 import org.apache.camel.ExchangeProperty;
@@ -18,6 +26,9 @@ import org.apache.camel.component.kubernetes.KubernetesConstants;
 import org.apache.camel.support.builder.PredicateBuilder;
 import org.apache.commons.codec.DecoderException;
 import org.apache.commons.codec.binary.Hex;
+import org.bouncycastle.openssl.PEMKeyPair;
+import org.bouncycastle.openssl.PEMParser;
+import org.bouncycastle.openssl.jcajce.JcaPEMKeyConverter;
 
 import io.fabric8.kubernetes.api.model.Secret;
 
@@ -49,6 +60,28 @@ public class EventsHandler extends RouteBuilder {
         log.info("-> Signature {} is valid", signature);
     }
 
+    String generateJWT(
+        @ExchangeProperty(GitHubApp.PEM) String pem,
+        @ExchangeProperty("app_id") String appId)
+        throws IOException {
+
+        try (PEMParser parser = new PEMParser(new StringReader(pem))) {
+
+            // read the private key
+            JcaPEMKeyConverter converter = new JcaPEMKeyConverter();
+            KeyPair kp = converter.getKeyPair((PEMKeyPair) parser.readObject());
+            RSAPrivateKey key = (RSAPrivateKey) kp.getPrivate();
+        
+            // create and sign JWT with private key
+            return JWT.create()
+                .withIssuer(appId)
+                .sign(Algorithm.RSA256(null, key));
+        }
+        catch (JWTCreationException e) {
+            throw new IOException("Error creating JWT token", e);
+        }
+    }
+    
     @Override
     public void configure() throws Exception {
 
@@ -77,6 +110,7 @@ public class EventsHandler extends RouteBuilder {
 
             .onException(DecoderException.class)
             .onException(GeneralSecurityException.class)
+            .onException(IOException.class)
                 .handled(true)
                 .removeHeaders("*")
                 .setHeader(Exchange.HTTP_RESPONSE_CODE, constant(404))
@@ -90,9 +124,10 @@ public class EventsHandler extends RouteBuilder {
             // get app secrets
             .to("direct:get-secret")
 
+            // validate the event and request for an access token
             .bean(this, "validateSignature")
-            // TODO: generate JWT
-            // TODO: request access token
+            .setProperty("jwt", method(this, "generateJWT"))
+            .log("TODO: ${exchangeProperty[jwt]}") // TODO: request access token
             
             // restore original payload
             .setBody(exchangeProperty("payload"))
@@ -113,6 +148,7 @@ public class EventsHandler extends RouteBuilder {
                     Map<String, String> data = secret.getData();
                     
                     exchange.setProperty(GitHubApp.WEBHOOK_SECRET, decoder.decode(data.get(GitHubApp.WEBHOOK_SECRET)));
+                    exchange.setProperty(GitHubApp.PEM, decoder.decode(data.get(GitHubApp.PEM)));
                 }
             });
     }

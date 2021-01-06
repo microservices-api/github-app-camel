@@ -52,6 +52,16 @@
       <artifactId>commons-codec</artifactId>
       <version>1.15</version>
     </dependency>
+    <dependency>
+      <groupId>org.bouncycastle</groupId>
+      <artifactId>bcpkix-jdk15on</artifactId>
+      <version>1.68</version>
+    </dependency>
+    <dependency>
+      <groupId>com.auth0</groupId>
+      <artifactId>java-jwt</artifactId>
+      <version>3.12.0</version>
+    </dependency>
 
     <!-- logging -->
     <dependency>
