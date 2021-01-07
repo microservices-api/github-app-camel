@@ -9,6 +9,7 @@ import java.security.SignatureException;
 import java.security.interfaces.RSAPrivateKey;
 import java.util.Base64;
 import java.util.Base64.Decoder;
+import java.util.Date;
 import java.util.Map;
 
 import javax.crypto.Mac;
@@ -60,7 +61,7 @@ public class EventsHandler extends RouteBuilder {
         log.info("-> Signature {} is valid", signature);
     }
 
-    String generateJWT(
+    String generateAuth(
         @ExchangeProperty(GitHubApp.PEM) String pem,
         @ExchangeProperty("app_id") String appId)
         throws IOException {
@@ -72,8 +73,12 @@ public class EventsHandler extends RouteBuilder {
             KeyPair kp = converter.getKeyPair((PEMKeyPair) parser.readObject());
             RSAPrivateKey key = (RSAPrivateKey) kp.getPrivate();
         
+            Date date = new Date();
+
             // create and sign JWT with private key
-            return JWT.create()
+            return "Bearer " + JWT.create()
+                .withIssuedAt(date)
+                .withExpiresAt(new Date(date.getTime() + (10 * 60 * 1000))) // 10 mins 
                 .withIssuer(appId)
                 .sign(Algorithm.RSA256(null, key));
         }
@@ -124,11 +129,17 @@ public class EventsHandler extends RouteBuilder {
             // get app secrets
             .to("direct:get-secret")
 
-            // validate the event and request for an access token
+            // validate the event
             .bean(this, "validateSignature")
-            .setProperty("jwt", method(this, "generateJWT"))
-            .log("TODO: ${exchangeProperty[jwt]}") // TODO: request access token
-            
+
+            // request for an access token
+            .removeHeaders("*")
+            .setHeader("Authorization", method(this, "generateAuth"))
+            .setBody(simple("${null}"))
+            .toD("https://api.github.com/app/installations/${exchangeProperty[id]}/access_tokens?httpMethod=POST")
+            .unmarshal().json()
+            .setProperty("token", simple("${body[token]}"))
+
             // restore original payload
             .setBody(exchangeProperty("payload"))
             .log("TODO: ${body}");
